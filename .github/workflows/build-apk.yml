@@ -52,10 +52,10 @@ jobs:
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Multi App</title>
+            <title>Notifica App</title>
           </head>
           <body>
-            <p>Carregando Multi App...</p>
+            <p>Carregando Notifica App...</p>
           </body>
           </html>
           EOF
@@ -68,7 +68,7 @@ jobs:
           cat > capacitor.config.json <<'EOF'
           {
             "appId": "com.almeida.android",
-            "appName": "Multi App",
+            "appName": "Notifica App",
             "webDir": "www",
             "server": {
               "url": "https://almeida-cma.github.io/android/",
@@ -237,5 +237,5 @@ jobs:
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: Multi-App-APK
+          name: Notifica-App-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
