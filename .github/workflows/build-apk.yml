@@ -1,0 +1,241 @@
+name: Gerar APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ============================================================
+      # 1. BAIXAR PROJETO
+      # ============================================================
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+      # ============================================================
+      # 2. JAVA
+      # ============================================================
+      - name: Configurar Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # ============================================================
+      # 3. NODE
+      # ============================================================
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # ============================================================
+      # 4. CRIAR PROJETO CAPACITOR
+      # ============================================================
+      - name: Criar projeto
+        run: |
+          npm init -y
+          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+
+      # ============================================================
+      # 5. PÁGINA LOCAL MÍNIMA
+      # ============================================================
+      - name: Criar página mínima
+        run: |
+          mkdir -p www
+          cat > www/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Multi App</title>
+          </head>
+          <body>
+            <p>Carregando Multi App...</p>
+          </body>
+          </html>
+          EOF
+
+      # ============================================================
+      # 6. CONFIGURAR CAPACITOR (URL DO SEU GITHUB PAGES)
+      # ============================================================
+      - name: Configurar Capacitor
+        run: |
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.almeida.android",
+            "appName": "Multi App",
+            "webDir": "www",
+            "server": {
+              "url": "https://almeida-cma.github.io/android/",
+              "cleartext": false
+            }
+          }
+          EOF
+
+      # ============================================================
+      # 7. ADICIONAR PLATAFORMA ANDROID
+      # ============================================================
+      - name: Adicionar Android
+        run: npx cap add android
+
+      # ============================================================
+      # 8. ADICIONAR PERMISSÕES ANDROID (INCLUINDO NOTIFICAÇÕES)
+      # ============================================================
+      - name: Configurar permissões Android
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          content = manifest.read_text()
+
+          permissions = [
+              "android.permission.INTERNET",
+              "android.permission.POST_NOTIFICATIONS",
+              "android.permission.VIBRATE",
+              "android.permission.CAMERA",
+              "android.permission.ACCESS_FINE_LOCATION",
+              "android.permission.ACCESS_COARSE_LOCATION",
+              "android.permission.BLUETOOTH_SCAN",
+              "android.permission.BLUETOOTH_CONNECT"
+          ]
+
+          for permission in permissions:
+              tag = f'    <uses-permission android:name="{permission}" />'
+              if tag not in content:
+                  content = content.replace("<application", tag + "\n\n    <application", 1)
+
+          manifest.write_text(content)
+          print("Permissões (incluindo notificações) configuradas com sucesso.")
+          PY
+
+      # ============================================================
+      # 9. DECLARAR RECURSOS DE HARDWARE OPCIONAIS
+      # ============================================================
+      - name: Configurar recursos de hardware
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          content = manifest.read_text()
+
+          features = [
+              '<uses-feature android:name="android.hardware.camera.any" android:required="false" />',
+              '<uses-feature android:name="android.hardware.location.gps" android:required="false" />',
+              '<uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />'
+          ]
+
+          for feature in features:
+              if feature not in content:
+                  content = content.replace("<application", "    " + feature + "\n\n    <application", 1)
+
+          manifest.write_text(content)
+          print("Hardware opcional configurado.")
+          PY
+
+      # ============================================================
+      # 10. CONFIGURAR MAINACTIVITY
+      # ============================================================
+      - name: Configurar MainActivity Android
+        run: |
+          cat > android/app/src/main/java/com/almeida/android/MainActivity.java <<'EOF'
+          package com.almeida.android;
+
+          import android.Manifest;
+          import android.content.pm.PackageManager;
+          import android.os.Bundle;
+          import android.webkit.GeolocationPermissions;
+          import android.webkit.PermissionRequest;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebView;
+
+          import androidx.annotation.NonNull;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.content.ContextCompat;
+
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+
+              private static final int PERMISSION_REQUEST_CODE = 1001;
+              private PermissionRequest pendingPermissionRequest;
+              private GeolocationPermissions.Callback pendingGeoCallback;
+              private String pendingGeoOrigin;
+
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  WebView webView = getBridge().getWebView();
+                  webView.getSettings().setJavaScriptEnabled(true);
+                  webView.getSettings().setGeolocationEnabled(true);
+                  webView.getSettings().setDomStorageEnabled(true);
+
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onPermissionRequest(PermissionRequest request) {
+                          runOnUiThread(() -> {
+                              String origin = request.getOrigin().toString();
+                              if (!origin.startsWith("https://almeida-cma.github.io")) {
+                                  request.deny();
+                                  return;
+                              }
+
+                              java.util.ArrayList<String> resources = new java.util.ArrayList<>();
+                              for (String resource : request.getResources()) {
+                                  if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource) ||
+                                      PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+                                      resources.add(resource);
+                                  }
+                              }
+
+                              if (!resources.isEmpty()) {
+                                  request.grant(resources.toArray(new String[0]));
+                              } else {
+                                  request.deny();
+                              }
+                          });
+                      }
+
+                      @Override
+                      public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                          runOnUiThread(() -> {
+                              if (!origin.startsWith("https://almeida-cma.github.io")) {
+                                  callback.invoke(origin, false, false);
+                                  return;
+                              }
+                              callback.invoke(origin, true, false);
+                          });
+                      }
+                  });
+              }
+          }
+          EOF
+
+      # ============================================================
+      # 11. SINCRONIZAR CAPACITOR
+      # ============================================================
+      - name: Sincronizar Capacitor
+        run: npx cap sync android
+
+      # ============================================================
+      # 12. GERAR APK COM GRADLE
+      # ============================================================
+      - name: Gerar APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      # ============================================================
+      # 13. DISPONIBILIZAR APK PARA DOWNLOAD
+      # ============================================================
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Multi-App-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
