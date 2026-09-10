@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi App - Notificações</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            color: #f8fafc;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .app-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 20px;
+            padding: 24px;
+            max-width: 440px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.4);
+        }
+
+        h1 { font-size: 1.5rem; color: #38bdf8; margin-bottom: 6px; }
+        p.sub { font-size: 0.85rem; color: #94a3b8; margin-bottom: 18px; }
+
+        .btn {
+            background: #ec4899;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 30px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+            transition: 0.2s;
+        }
+        .btn:hover { opacity: 0.9; transform: scale(1.02); }
+        .btn.sec { background: #3b82f6; }
+
+        .terminal-box {
+            background: #090d16;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 14px;
+            text-align: left;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: #a78bfa;
+            line-height: 1.6;
+            margin-top: 14px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .badge-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            margin-bottom: 12px;
+        }
+        .badge-ok { background: #065f46; color: #34d399; }
+        .badge-pendente { background: #854d0e; color: #fde047; }
+        .badge-bloqueado { background: #991b1b; color: #fca5a5; }
+    </style>
+</head>
+<body>
+
+    <div class="app-card">
+        <h1>🔔 Multi App &bull; Avisos</h1>
+        <p class="sub">Monitoramento remoto via <code>notificacao.json</code></p>
+
+        <div id="badge-perm" class="badge-status badge-pendente">
+            Permissão: Pendente
+        </div>
+
+        <button class="btn" id="btn-perm" onclick="solicitarPermissao()">
+            🔔 Ativar Notificações
+        </button>
+
+        <button class="btn sec" onclick="verificarNotificacoesRemotas()">
+            🔄 Checar Atualizações Agora
+        </button>
+
+        <div class="terminal-box" id="log-box">Aguardando inicialização...</div>
+    </div>
+
+    <script>
+        const logBox = document.getElementById("log-box");
+        const badgePerm = document.getElementById("badge-perm");
+        const btnPerm = document.getElementById("btn-perm");
+
+        // 1. ATUALIZA O STATUS DA PERMISSÃO NA TELA
+        function atualizarBadge() {
+            if (!("Notification" in window)) {
+                badgePerm.className = "badge-status badge-bloqueado";
+                badgePerm.innerText = "Notification API não suportada";
+                btnPerm.style.display = "none";
+                return;
+            }
+
+            if (Notification.permission === "granted") {
+                badgePerm.className = "badge-status badge-ok";
+                badgePerm.innerText = "✅ Notificações Ativadas";
+                btnPerm.style.display = "none";
+            } else if (Notification.permission === "denied") {
+                badgePerm.className = "badge-status badge-bloqueado";
+                badgePerm.innerText = "❌ Notificações Bloqueadas";
+            } else {
+                badgePerm.className = "badge-status badge-pendente";
+                badgePerm.innerText = "⚠️ Permissão Pendente";
+            }
+        }
+
+        // 2. SOLICITAR PERMISSÃO AO USUÁRIO
+        async function solicitarPermissao() {
+            if ("Notification" in window) {
+                const res = await Notification.requestPermission();
+                atualizarBadge();
+                if (res === "granted") {
+                    log("✅ Permissão concedida pelo usuário!");
+                    verificarNotificacoesRemotas();
+                } else {
+                    log("❌ Permissão negada pelo usuário.");
+                }
+            }
+        }
+
+        // 3. CONSULTA O ARQUIVO NOTIFICACAO.JSON NO GITHUB
+        async function verificarNotificacoesRemotas() {
+            log("🔍 Verificando 'notificacao.json'...");
+
+            try {
+                // Adiciona timestamp para evitar cache do navegador/GitHub Pages
+                const resposta = await fetch("./notificacao.json?t=" + Date.now());
+                if (!resposta.ok) throw new Error("Status HTTP " + resposta.status);
+
+                const dados = await resposta.json();
+                log(`📦 JSON Lido:\nID: ${dados.id} | Ativo: ${dados.notificacao}\nTítulo: "${dados.titulo}"`);
+
+                if (dados.notificacao === true) {
+                    const ultimoIdLido = localStorage.getItem("ultimo_id_notificacao");
+
+                    // Dispara apenas se for um ID novo (ainda não exibido)
+                    if (String(dados.id) !== String(ultimoIdLido)) {
+                        dispararNotificacaoNativa(dados);
+                        localStorage.setItem("ultimo_id_notificacao", String(dados.id));
+                    } else {
+                        log("ℹ️ Esta notificação (ID " + dados.id + ") já foi exibida anteriormente.");
+                    }
+                } else {
+                    log("ℹ️ Nenhuma notificação ativa no momento ('notificacao': false).");
+                }
+
+            } catch (erro) {
+                log("⚠️ Erro ao consultar notificacao.json: " + erro.message);
+            }
+        }
+
+        // 4. DISPARA O ALERTA NATIVO + VIBRAÇÃO NO CELULAR
+        function dispararNotificacaoNativa(dados) {
+            // Vibração no motor do Android (se disponível)
+            if ("vibrate" in navigator) {
+                navigator.vibrate([100, 50, 100]);
+            }
+
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification(dados.titulo, {
+                    body: dados.mensagem,
+                    icon: "https://cdn-icons-png.flaticon.com/512/726/726476.png"
+                });
+                log("🚀 Notificação enviada para a barra do sistema!");
+            } else {
+                log("⚠️ Alerta na tela (Permissão do sistema não concedida): " + dados.mensagem);
+            }
+        }
+
+        function log(msg) {
+            const hora = new Date().toLocaleTimeString();
+            logBox.innerText = `[${hora}] ${msg}\n\n` + logBox.innerText;
+        }
+
+        // 5. INICIALIZAÇÃO E CHECAGEM AUTOMÁTICA
+        window.addEventListener("DOMContentLoaded", () => {
+            atualizarBadge();
+            verificarNotificacoesRemotas();
+            // Checa automaticamente a cada 15 segundos
+            setInterval(verificarNotificacoesRemotas, 15000);
+        });
+    </script>
+</body>
+</html>
